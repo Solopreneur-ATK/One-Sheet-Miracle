@@ -276,15 +276,27 @@ figcaption{font-size:12.5px;color:var(--ink-faint);margin-top:8px;text-align:cen
 .full-content th:first-child,.full-content td:first-child{text-align:left;}
 .full-content th{background:var(--surface-alt);font-weight:600;font-size:12px;}
 
-/* Expandable ratio table (Week 3) — reuses .full-content table/th/td as base */
+/* Expandable ratio table (Week 3) — reuses .full-content table/th/td as base.
+   Each category is its own <tbody> ("ratio-group") rather than relying on a
+   plain rowspan: rowspan counts DOM rows including hidden .ratio-detail rows,
+   so once a detail row unhides between two rows of the same group, a rowspan
+   sized only to the visible .ratio-row count visually ends early and later
+   rows in that group look like they've fallen outside the category. A tbody
+   border reflows correctly no matter which rows are expanded. */
+.ratio-table{border-collapse:separate;border-spacing:0;}
+.ratio-group{border-left:1px solid var(--border);border-right:1px solid var(--border);}
+.ratio-group:first-of-type{border-top:1px solid var(--border);}
+.ratio-group.last{border-bottom:1px solid var(--border);}
 .ratio-table .ratio-row{cursor:pointer;}
 .ratio-table .ratio-row:hover{background:var(--surface-alt);}
 .ratio-table .ratio-row.open{background:var(--surface-alt);}
 .ratio-table .ratio-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+.ratio-table td, .ratio-table th{border-left:none;border-right:none;}
+.ratio-table .ratio-cat{border-right:1px solid var(--border) !important;}
 .ratio-f{display:flex;align-items:center;justify-content:flex-end;gap:6px;font-family:"IBM Plex Mono",monospace;}
 .ratio-chev{display:inline-block;color:var(--ink-faint);font-size:12px;line-height:1;transition:transform .18s ease;flex:none;}
 .ratio-row.open .ratio-chev{transform:rotate(90deg);}
-.ratio-detail td{padding:0;border-top:none;}
+.ratio-detail td{padding:0;border-top:none;border-left:none;}
 .ratio-detail{background:var(--surface-alt);}
 .ratio-panel{padding:12px 16px 14px 26px;border-top:1px dashed var(--border);text-align:left;font-size:13px;}
 .rp-block{margin-bottom:10px;}
@@ -303,6 +315,7 @@ figcaption{font-size:12.5px;color:var(--ink-faint);margin-top:8px;text-align:cen
   .ratio-panel{padding-left:16px;}
 }
 .callout{background:var(--surface-alt);border-radius:var(--radius-s);padding:10px 14px;font-size:13.5px;margin:12px 0;}
+.side-note{display:block;background:var(--gold-soft);border-left:3px solid var(--gold);border-radius:0 var(--radius-s) var(--radius-s) 0;color:var(--ink-soft);padding:8px 12px;font-size:12.5px;line-height:1.5;margin-top:8px;}
 .tvm-table{border-collapse:collapse;font-size:12px;font-family:"IBM Plex Mono",monospace;white-space:nowrap;}
 .tvm-table th,.tvm-table td{border:1px solid var(--border);padding:4px 7px;text-align:right;}
 .tvm-table thead th{background:var(--surface-alt);position:sticky;top:0;font-family:inherit;font-weight:700;z-index:1;}
@@ -894,7 +907,9 @@ var RATIO_CATEGORIES = [
       meaning:"วัดสัดส่วนสินทรัพย์ที่จัดหาเงินด้วยหนี้สิน (เลเวอเรจทางการเงิน) ยิ่งสูงยิ่งเสี่ยง" },
     { id:"tie", name:"TIE", formula:"EBIT ÷ Interest", unilate:"3.3×", industry:"6.5×",
       vars:[
-        { abbr:"EBIT", full:"Earnings Before Interest and Taxes", th:"กำไรก่อนดอกเบี้ยและภาษี", statement:"Income Statement" },
+        { abbr:"EBIT", full:"Earnings Before Interest and Taxes", th:"กำไรก่อนดอกเบี้ยและภาษี",
+          breakdown:["Sales (ยอดขาย)","− COGS (ต้นทุนขาย)","− Operating Expenses (ค่าใช้จ่ายดำเนินงาน)","− Depreciation & Amortization (ค่าเสื่อมราคา/ค่าตัดจำหน่าย)"],
+          statement:"Income Statement" },
         { abbr:"Interest", full:"Interest Expense", th:"ดอกเบี้ยจ่าย", statement:"Income Statement" }
       ],
       meaning:"วัดว่ากำไรจากการดำเนินงานครอบคลุมภาระดอกเบี้ยจ่ายได้กี่เท่า" }
@@ -937,12 +952,25 @@ var RATIO_CATEGORIES = [
 function ratioVarBlockHtml(v){
   var head = '<div class="rp-var"><b class="rp-abbr">'+v.abbr+'</b> = '+v.full+(v.th?' <span class="rp-th">('+v.th+')</span>':'')+'</div>';
   var body = '';
+  // A breakdown line that already starts with an explicit operator (± − +)
+  // keeps it as-is; a plain line (e.g. the additive CA/CL component lists)
+  // still gets the default "+" prefix after the first line — this lets a
+  // subtractive derivation like EBIT (Sales − COGS − OpEx − D&A) render
+  // correctly instead of every line being forced onto "+".
+  function signed(b,i){
+    if(i===0) return '  = '+b;
+    return /^[−+\-]/.test(b) ? '  '+b : '  + '+b;
+  }
   if(v.breakdown){
-    body = '<div class="rp-breakdown">'+v.abbr+'\n'+v.breakdown.map(function(b,i){return (i===0?'  = ':'  + ')+b;}).join('\n')+'</div>';
+    body = '<div class="rp-breakdown">'+v.abbr+'\n'+v.breakdown.map(signed).join('\n')+'</div>';
   } else if(v.sub){
     body = '<div class="rp-breakdown">'+v.abbr+'\n'+v.sub.map(function(b,i){return (i===0?'  = ':'  ')+b;}).join('\n')+'</div>';
-  } else if(v.statement){
-    body = '<div class="rp-stmt">→ '+v.statement+'</div>';
+  }
+  // statement can co-occur with breakdown/sub (e.g. EBIT is both derived
+  // from other lines AND sourced from the Income Statement) — show both
+  // rather than the first branch silently hiding it.
+  if(v.statement){
+    body += '<div class="rp-stmt">→ '+v.statement+'</div>';
   }
   return head+body;
 }
@@ -956,22 +984,26 @@ function ratioDetailHtml(r){
 }
 
 function renderRatioTable(){
-  var rows = '';
-  RATIO_CATEGORIES.forEach(function(cat){
-    cat.ratios.forEach(function(r, i){
-      rows +=
-        '<tr class="ratio-row" tabindex="0" role="button" aria-expanded="false" '+
+  var groups = '';
+  RATIO_CATEGORIES.forEach(function(cat, ci){
+    var rows = cat.ratios.map(function(r, i){
+      return '<tr class="ratio-row" tabindex="0" role="button" aria-expanded="false" '+
           'onclick="toggleRatioRow(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();toggleRatioRow(this);}">'+
-          (i===0 ? '<td rowspan="'+cat.ratios.length+'"><b>'+cat.cat+'</b><br><span class="term">'+cat.catEn+'</span></td>' : '')+
+          (i===0 ? '<td class="ratio-cat" rowspan="'+cat.ratios.length+'"><b>'+cat.cat+'</b><br><span class="term">'+cat.catEn+'</span></td>' : '')+
           '<td>'+r.name+'</td>'+
           '<td class="ratio-f"><span class="ratio-fx">'+r.formula+'</span><span class="ratio-chev">›</span></td>'+
           '<td>'+r.unilate+'</td>'+
           '<td>'+r.industry+'</td>'+
         '</tr>'+
-        '<tr class="ratio-detail" hidden><td colspan="5">'+ratioDetailHtml(r)+'</td></tr>';
-    });
+        '<tr class="ratio-detail" hidden><td colspan="4">'+ratioDetailHtml(r)+'</td></tr>';
+    }).join('');
+    // Each category gets its own <tbody> so the group boundary (border) stays
+    // correct regardless of how many detail rows are expanded inside it —
+    // rowspan alone breaks once a hidden .ratio-detail row unhides between
+    // two rows of the same group.
+    groups += '<tbody class="ratio-group'+(ci===RATIO_CATEGORIES.length-1?' last':'')+'">'+rows+'</tbody>';
   });
-  return '<table class="ratio-table"><tr><th>หมวด</th><th>อัตราส่วน</th><th>สูตร</th><th>Unilate</th><th>อุตสาหกรรม</th></tr>'+rows+'</table>';
+  return '<table class="ratio-table"><thead><tr><th>หมวด</th><th>อัตราส่วน</th><th>สูตร</th><th>Unilate</th><th>อุตสาหกรรม</th></tr></thead>'+groups+'</table>';
 }
 
 function toggleRatioRow(rowEl){
@@ -1196,12 +1228,14 @@ PV(Annuity Due) = PV(Ordinary) × (1+i)</div>
     <h4>เงื่อนไขในสัญญาพันธบัตร (Bond Contract Features)</h4>
     <p><b>Indenture</b> คือสัญญาทางการระหว่างผู้ออกกับผู้ถือพันธบัตร มี <b>Trustee</b> คอยดูแลผลประโยชน์ผู้ถือ และมี <b>Restrictive Covenant</b> เป็นข้อกำหนดจำกัดพฤติกรรมผู้กู้ นอกจากนี้ <b>Sinking Fund</b> คือข้อกำหนดให้ผู้ออกทยอยไถ่ถอนหนี้ก่อนครบกำหนด (เรียกคืนบางส่วนทุกปี หรือซื้อคืนในตลาดเปิด) และ <b>Convertible Feature</b> ให้สิทธิผู้ถือแปลงพันธบัตรเป็นหุ้นสามัญได้ในราคาที่กำหนด (แปลงกลับไม่ได้)</p>
     <h4>อันดับความน่าเชื่อถือ (Bond Ratings)</h4>
-    <p>บอกความเสี่ยงผิดนัดชำระหนี้ <span class="term">(default risk)</span> ระดับ Triple-A และ Double-A ปลอดภัยที่สุด <b>Investment Grade Bonds</b> คือกลุ่มอันดับต่ำสุดที่สถาบันการเงินส่วนใหญ่ยังได้รับอนุญาตให้ถือครองตามกฎหมาย ต่ำกว่ากลุ่มนี้ลงไปเรียกว่า <b>Junk Bond</b> <span class="term">(below investment grade / high-yield bond)</span> — ตราสารหนี้เกรดต่ำ ความเสี่ยงผิดนัดชำระสูง มักออกโดยบริษัทที่มีอัตราส่วนหนี้สินสูงอยู่แล้ว และต้องเสนออัตราดอกเบี้ยหน้าตั๋วสูงกว่าตราสารเกรดดีมาก เพื่อจูงใจให้นักลงทุนยอมรับความเสี่ยงที่สูงขึ้น <span class="tag note">หมายเหตุ: บางตำรานิยาม junk bond เชิงตัวเลขว่าคูปองต้องสูงกว่าตราสารอันดับดีที่สุดอย่างน้อย 8 percentage points แต่คุณสมบัติพื้นฐานที่สุดคือ “ออกโดยบริษัทเลเวอเรจสูง” — ยังไม่มีเฉลยทางการจากอาจารย์ยืนยันเกณฑ์ที่ใช้ในข้อสอบ</span></p>
+    <p>บอกความเสี่ยงผิดนัดชำระหนี้ <span class="term">(default risk)</span> ระดับ Triple-A และ Double-A ปลอดภัยที่สุด <b>Investment Grade Bonds</b> คือกลุ่มอันดับต่ำสุดที่สถาบันการเงินส่วนใหญ่ยังได้รับอนุญาตให้ถือครองตามกฎหมาย ต่ำกว่ากลุ่มนี้ลงไปเรียกว่า <b>Junk Bond</b> <span class="term">(below investment grade / high-yield bond)</span> — ตราสารหนี้เกรดต่ำ ความเสี่ยงผิดนัดชำระสูง มักออกโดยบริษัทที่มีอัตราส่วนหนี้สินสูงอยู่แล้ว และต้องเสนออัตราดอกเบี้ยหน้าตั๋วสูงกว่าตราสารเกรดดีมาก เพื่อจูงใจให้นักลงทุนยอมรับความเสี่ยงที่สูงขึ้น</p>
+    <span class="side-note">หมายเหตุ: บางตำรานิยาม junk bond เชิงตัวเลขว่าคูปองต้องสูงกว่าตราสารอันดับดีที่สุดอย่างน้อย 8 percentage points แต่คุณสมบัติพื้นฐานที่สุดคือ “ออกโดยบริษัทเลเวอเรจสูง” — ยังไม่มีเฉลยทางการจากอาจารย์ยืนยันเกณฑ์ที่ใช้ในข้อสอบ</span>
     <h4>สูตรประเมินมูลค่าพันธบัตร (Bond Valuation Formula)</h4>
     <p>ราคาพันธบัตรคือ PV ของกระแสเงินสดทั้งหมดที่จะได้รับ = PV(ดอกเบี้ยรายงวด แบบ annuity) + PV(เงินต้นคืนวันครบกำหนด แบบ lump sum):</p>
     <div class="callout mono">PB = PMT × PVIFA(k,n) + FV × PVIF(k,n)
 โดย PMT = อัตราดอกเบี้ยหน้าตั๋ว × Par Value, k = YTM ที่ตลาดต้องการ, n = จำนวนงวดที่เหลือ</div>
-    <p><b>ตัวอย่าง (จากสไลด์):</b> หุ้นกู้ 15 ปี คูปอง 10% พาร์ $1,000 — ถ้า YTM = 10% (เท่ากับคูปอง) ราคา = <b>$1,000.00</b> พอดี (ขายที่พาร์) ถ้า YTM เพิ่มเป็น 12% ราคาจะลดลงเหลือประมาณ <b>$863.78</b> <span class="term">(discount bond)</span> และถ้า YTM ลดลงเหลือ 8% ราคาจะเพิ่มขึ้นเป็นประมาณ <b>$1,171.19</b> <span class="term">(premium bond)</span> <span class="tag note">ตัวเลข 863.78/1,171.19 คำนวณเสริมโดยทีมจัดทำเว็บ ไม่ใช่ตัวเลขที่อาจารย์เฉลยในสไลด์ (สไลด์เว้นว่างไว้ให้คิดในห้อง)</span></p>
+    <p><b>ตัวอย่าง (จากสไลด์):</b> หุ้นกู้ 15 ปี คูปอง 10% พาร์ $1,000 — ถ้า YTM = 10% (เท่ากับคูปอง) ราคา = <b>$1,000.00</b> พอดี (ขายที่พาร์) ถ้า YTM เพิ่มเป็น 12% ราคาจะลดลงเหลือประมาณ <b>$863.78</b> <span class="term">(discount bond)</span> และถ้า YTM ลดลงเหลือ 8% ราคาจะเพิ่มขึ้นเป็นประมาณ <b>$1,171.19</b> <span class="term">(premium bond)</span></p>
+    <span class="side-note">ตัวเลข 863.78/1,171.19 คำนวณเสริมโดยทีมจัดทำเว็บ ไม่ใช่ตัวเลขที่อาจารย์เฉลยในสไลด์ (สไลด์เว้นว่างไว้ให้คิดในห้อง)</span>
     <h4>การจ่ายดอกเบี้ยครึ่งปี (Semiannual Compounding)</h4>
     <p>พันธบัตรส่วนใหญ่จ่ายดอกเบี้ย 2 งวด/ปี ต้องปรับสูตร 3 จุด: <b>หาร</b> PMT และ k ด้วย 2, และ <b>คูณ</b> n ด้วย 2:</p>
     <div class="callout mono">PB = (PMT/2) × PVIFA(k/2, n×2) + FV × PVIF(k/2, n×2)</div>
